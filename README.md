@@ -1,95 +1,106 @@
 # NetWatch 🔍
 
-A home network monitoring tool with a C++ scanner engine that discovers devices, fingerprints them, and reports open services.
+A home network monitoring tool with a C++ scanner engine and a Python/Flask dashboard. Discovers devices on your local network, fingerprints them by hostname, MAC address, vendor, and open ports, and displays everything in a browser.
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/Dzzjio/dzzNetWatch
+cd dzzNetWatch
+chmod +x install.sh && ./install.sh
+./run.sh
+```
+
+Open `http://localhost:5000` in your browser. Click **Run New Scan**.
+
+> Must be run on the same machine connected to the network you want to scan. Only scan networks you own or have permission to scan.
 
 ---
 
 ## How It Works
 
 ### 1. Host Discovery — ICMP Ping
-The scanner iterates every IP in the subnet and sends an **ICMP echo request** (ping) to each one. If the device replies with an ICMP echo reply, it's alive.
+Iterates every IP in the detected subnet and sends an ICMP echo request. Devices that reply are alive.
 
 ```
-Your laptop                Target device
-    |                           |
-    |──── ICMP Echo Request ───>|   "are you there?"
-    |<─── ICMP Echo Reply ──────|   "yes"  ← host is UP
-    |                           |
-    |──── ICMP Echo Request ───>|   (silence / timeout) ← host is DOWN
+Your machine              Target device
+    |                          |
+    |── ICMP Echo Request ────>|   "are you there?"
+    |<─ ICMP Echo Reply ───────|   "yes"  ← host UP
+    |                          |
+    |── ICMP Echo Request ────>|   (timeout) ← host DOWN
 ```
 
-### 2. Hostname Resolution — Reverse DNS
-Once a host is found, we do a **reverse DNS lookup** — instead of asking "what IP does google.com have?", we ask "what name does 172.20.10.1 have?". The OS resolves this via mDNS or the local DNS server (your phone's hotspot in this case).
+### 2. Subnet Auto-Detection
+Runs `ip addr` at scan time, parses the active interface IP and prefix, calculates the full host range automatically. No hardcoded IPs.
 
 ```
-Your laptop                 DNS / mDNS
-    |                           |
-    |──── who is 172.20.10.1? ─>|
-    |<─── "_gateway"  ──────────|
+ip addr output:  172.20.10.2/28
+prefix /28    →  2^4 - 2 = 14 hosts
+scan range    →  172.20.10.1 to 172.20.10.14
 ```
 
 ### 3. MAC Address — ARP Table
-When your laptop pinged a device, the OS needed its **MAC address** to actually send the frame over WiFi. It used **ARP (Address Resolution Protocol)** to find it and cached the result in `/proc/net/arp`.
+After a ping, the OS caches the device's MAC in `/proc/net/arp`. We read it directly — no extra network request needed.
 
 ```
-Your laptop                Target device
-    |                           |
-    |──── ARP: who has .10.1? ─>|   broadcast to everyone
-    |<─── "that's me: 9e:fa:76" |   unicast reply
-    |                           |
-    └── OS caches this in /proc/net/arp
+Your machine              Target device
+    |                          |
+    |── ARP: who has .10.1? ──>|   broadcast
+    |<─ "that's me: 9e:fa:76"  |   reply
+    |                          |
+    └── cached in /proc/net/arp
 ```
-
-We just read that cache — no extra network request needed.
 
 ### 4. Vendor Lookup — OUI Database
-The first 3 bytes of a MAC address identify the **manufacturer** (OUI — Organizationally Unique Identifier). We look this up against the Wireshark OUI database.
+First 3 bytes of a MAC identify the manufacturer. Looked up against the Wireshark OUI database.
 
 ```
 MAC:  d8:80:83:d0:03:87
 OUI:  D8:80:83  →  Intel Corporation
 ```
 
-> Note: Modern phones use **MAC randomization** — they generate a fake random MAC per network for privacy. This is why the iPhone shows "unknown" vendor.
+> iPhones use MAC randomization — vendor will show as unknown. This is expected behavior.
 
 ### 5. Port Scanning — TCP Connect
-For each live host we attempt a **TCP handshake** on common ports. If the connection succeeds, the port is open and a service is running there.
+Attempts a TCP handshake on common ports to identify running services.
 
 ```
-Your laptop              Target device
-    |                         |
-    |──── SYN ───────────────>|   "I want to connect"
-    |<─── SYN + ACK ──────────|   "ok"       ← port OPEN
-    |──── ACK ───────────────>|
-    
-    |──── SYN ───────────────>|   "I want to connect"
-    |<─── RST ────────────────|   "nothing here"  ← port CLOSED
-    
-    |──── SYN ───────────────>|   (timeout)   ← FILTERED
+Your machine         Target
+    |── SYN ────────>|
+    |<─ SYN+ACK ─────|  ← port OPEN
+    |── ACK ────────>|
+
+    |── SYN ────────>|
+    |<─ RST ──────────|  ← port CLOSED
 ```
 
 ### 6. Device Fingerprinting
-Combining open ports + vendor, we guess the device type:
+Combines open ports + vendor to guess device type:
 
-| Port  | Service       | Likely device        |
-|-------|---------------|----------------------|
-| 22    | SSH           | Linux / Mac machine  |
-| 80    | HTTP          | Router / web server  |
-| 443   | HTTPS         | Router / server      |
-| 3306  | MySQL         | Database server      |
-| 7000  | AirPlay       | Apple device         |
-| 9100  | Printer       | Network printer      |
-| 62078 | iTunes sync   | iPhone               |
+| Port  | Service     | Device              |
+|-------|-------------|---------------------|
+| 22    | SSH         | Linux / Mac machine |
+| 80    | HTTP        | Router / web server |
+| 135   | RPC         | Windows machine     |
+| 445   | SMB         | Windows machine     |
+| 3306  | MySQL       | Database server     |
+| 7000  | AirPlay     | Apple device        |
+| 9100  | Printer     | Network printer     |
+| 62078 | iTunes sync | iPhone              |
 
 ---
 
 ## Stack
 
-| Layer      | Technology              | Purpose                        |
-|------------|-------------------------|--------------------------------|
-| Scanner    | C++                     | Ping, ARP, port scanning       |
-| Storage    | Python + SQLite         | Log scan results over time     |
-| Dashboard  | Python + Flask + HTML   | View results in browser        |
+| Layer     | Technology            | Purpose                          |
+|-----------|-----------------------|----------------------------------|
+| Scanner   | C++                   | Ping, ARP, port scanning         |
+| Bridge    | Python                | Runs scanner, parses output      |
+| Storage   | SQLite                | Stores scan history by session   |
+| Dashboard | Python + Flask + HTML | View results in browser          |
 
 ---
 
@@ -98,38 +109,38 @@ Combining open ports + vendor, we guess the device type:
 ```
 netwatch/
   scanner/
-    main.cpp        ← entry point, scan loop, spinner animation
+    main.cpp        ← scan loop, spinner animation, CLI args
     scanner.cpp     ← all network functions
     scanner.h       ← function declarations
-    Makefile        ← build with `make`
   bridge/
-    scan_runner.py  ← runs C++ binary, parses output
-    db.py           ← SQLite storage
+    scan_runner.py  ← runs C++ binary, parses output, saves to DB
+    db.py           ← SQLite layer
   web/
     app.py          ← Flask server
     templates/
       dashboard.html
+      scanning.html
+      history.html
     static/
       style.css
-  manuf.txt         ← OUI vendor database (not committed, too large)
+  install.sh        ← installs dependencies, compiles scanner
+  run.sh            ← launches dashboard
   README.md
 ```
 
 ---
 
-## Build & Run
+## Requirements
 
-```bash
-# compile
-cd scanner
-g++ main.cpp scanner.cpp -o netwatch -pthread
+- Linux (Ubuntu 20.04+)
+- g++
+- Python 3
+- pip3
 
-# run
-./netwatch
-```
+All installed automatically by `install.sh`.
 
 ---
 
 ## Legal Note
 
-Only scan networks you own or have explicit permission to scan. This tool was developed and tested on a personal mobile hotspot.
+Only scan networks you own or have explicit permission to scan. Scanning public or university networks without permission may violate local laws and terms of service.
