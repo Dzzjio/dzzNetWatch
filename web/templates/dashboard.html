@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetWatch</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 NetWatch</h1>
+            <p>Home network monitor</p>
+            <a href="/scan" class="scan-btn">Run New Scan</a>
+        </div>
+
+        {% if devices %}
+        <div class="device-grid">
+            {% for d in devices %}
+            <div class="device-card">
+                <div class="device-icon">
+                    {% if d['device'] == 'iPhone' %}📱
+                    {% elif d['device'] == 'Linux/Mac machine' %}💻
+                    {% elif d['device'] == 'Windows machine' %}🖥️
+                    {% elif d['device'] == 'Router/Web server' %}📡
+                    {% elif d['device'] == 'Printer' %}🖨️
+                    {% else %}❓
+                    {% endif %}
+                </div>
+                <div class="device-info">
+                    <div class="device-ip">{{ d['ip'] }}</div>
+                    <div class="device-hostname">{{ d['hostname'] }}</div>
+                    <div class="device-type">{{ d['device'] }}</div>
+                    <div class="device-meta">
+                        <span class="tag">MAC: {{ d['mac'] }}</span>
+                        <span class="tag">{{ d['vendor'] }}</span>
+                        <span class="tag">ports: {{ d['ports'] }}</span>
+                    </div>
+                    <div class="scan-time">{{ d['scanned_at'] }}</div>
+                </div>
+                <div class="status-dot online"></div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">
+            <p>No scan data yet.</p>
+            <a href="/scan" class="scan-btn">Run First Scan</a>
+        </div>
+        {% endif %}
+
+        <div class="footer">
+            <a href="/history">View scan history</a>
+            &nbsp;·&nbsp;
+            <a href="/api/devices">JSON API</a>
+        </div>
+    </div>
+</body>
+</html>

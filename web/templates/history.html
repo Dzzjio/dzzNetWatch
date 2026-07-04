@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NetWatch — History</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔍 NetWatch</h1>
+            <p>Scan History</p>
+            <a href="/" class="scan-btn">← Back</a>
+        </div>
+
+        <table style="width:100%; border-collapse: collapse;">
+            <tr style="color:#00ff88; border-bottom: 1px solid #2a2d3e;">
+                <th style="padding:8px; text-align:left;">IP</th>
+                <th style="padding:8px; text-align:left;">Hostname</th>
+                <th style="padding:8px; text-align:left;">Device</th>
+                <th style="padding:8px; text-align:left;">Ports</th>
+                <th style="padding:8px; text-align:left;">Time</th>
+            </tr>
+            {% for row in rows %}
+            <tr style="border-bottom: 1px solid #1a1d2e;">
+                <td style="padding:8px; color:#00ff88;">{{ row['ip'] }}</td>
+                <td style="padding:8px;">{{ row['hostname'] }}</td>
+                <td style="padding:8px;">{{ row['device'] }}</td>
+                <td style="padding:8px; color:#888;">{{ row['ports'] }}</td>
+                <td style="padding:8px; color:#555; font-size:0.8rem;">{{ row['scanned_at'] }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>

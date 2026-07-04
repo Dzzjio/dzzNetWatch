@@ -7,13 +7,6 @@
 #include <chrono>
 #include "scanner.h"
 
-// ─────────────────────────────────────────────
-// LOADER ANIMATION
-// ─────────────────────────────────────────────
-// runs in a separate thread while ping + port scan is happening.
-// atomic<bool> is thread-safe — one thread writes it, one reads it,
-// no risk of them stepping on each other.
-// ─────────────────────────────────────────────
 void spinner(const std::string& ip, std::atomic<bool>& running) {
     const char frames[] = {'|', '/', '-', '\\'};
     int i = 0;
@@ -24,30 +17,38 @@ void spinner(const std::string& ip, std::atomic<bool>& running) {
     }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
+    // defaults — hotspot
     std::string base      = "172.20.10.";
+    int startIP           = 1;
+    int endIP             = 14;
     std::string manufPath = "../manuf.txt";
 
-    // ports to check on each device
-    std::vector<int> ports = {22, 80, 443, 3306, 7000, 9100, 62078};
+    // if Python passes subnet args, use those instead
+    // usage: ./netwatch <base> <start> <end>
+    // e.g.:  ./netwatch 192.168.1. 1 254
+    if (argc == 4) {
+        base     = argv[1];
+        startIP  = std::stoi(argv[2]);
+        endIP    = std::stoi(argv[3]);
+    }
 
-    std::cout << "\nNetWatch — scanning " << base << "0/28\n";
+    std::vector<int> ports = {22, 80, 135, 443, 445, 3306, 7000, 9100, 62078};
+
+    std::cout << "\nNetWatch — scanning " << base << "0\n";
     std::cout << "─────────────────────────────────────────────────────\n";
 
     int found = 0;
 
-    for (int i = 1; i <= 14; i++) {
+    for (int i = startIP; i <= endIP; i++) {
         std::string ip = base + std::to_string(i);
 
-        // start spinner in background thread while we ping + scan
         std::atomic<bool> running(true);
         std::thread spinThread(spinner, ip, std::ref(running));
 
-        // step 1: ping to check if host is alive
         std::string cmd = "ping -c 1 -W 1 " + ip + " > /dev/null 2>&1";
         int result = std::system(cmd.c_str());
 
-        // step 2: if alive, gather info (ports take a few seconds)
         std::string hostname, mac, vendor, openPorts, device;
         if (result == 0) {
             hostname  = getHostname(ip);
@@ -58,11 +59,9 @@ int main() {
             found++;
         }
 
-        // stop spinner before printing result
         running = false;
         spinThread.join();
 
-        // clear spinner line
         std::cout << "\r                                                     \r" << std::flush;
 
         if (result == 0) {

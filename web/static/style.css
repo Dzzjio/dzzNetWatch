@@ -1,0 +1,128 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+    background: #0f1117;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 40px 20px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.header h1 {
+    font-size: 2.5rem;
+    color: #00ff88;
+    margin-bottom: 8px;
+}
+
+.header p {
+    color: #888;
+    margin-bottom: 20px;
+}
+
+.scan-btn {
+    display: inline-block;
+    background: #00ff88;
+    color: #0f1117;
+    padding: 10px 24px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: bold;
+    transition: opacity 0.2s;
+}
+
+.scan-btn:hover { opacity: 0.8; }
+
+.device-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.device-card {
+    background: #1a1d2e;
+    border: 1px solid #2a2d3e;
+    border-radius: 10px;
+    padding: 20px;
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    position: relative;
+    transition: border-color 0.2s;
+}
+
+.device-card:hover { border-color: #00ff88; }
+
+.device-icon { font-size: 2rem; }
+
+.device-info { flex: 1; }
+
+.device-ip {
+    font-size: 1.2rem;
+    color: #00ff88;
+    font-weight: bold;
+}
+
+.device-hostname {
+    color: #aaa;
+    margin: 4px 0;
+}
+
+.device-type {
+    color: #fff;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+.device-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.tag {
+    background: #2a2d3e;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #aaa;
+}
+
+.scan-time {
+    font-size: 0.75rem;
+    color: #555;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-top: 4px;
+}
+
+.status-dot.online { background: #00ff88; }
+
+.empty {
+    text-align: center;
+    padding: 80px 20px;
+    color: #555;
+}
+
+.footer {
+    text-align: center;
+    margin-top: 40px;
+    color: #555;
+    font-size: 0.85rem;
+}
+
+.footer a { color: #00ff88; text-decoration: none; }
