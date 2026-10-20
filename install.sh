@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# work from the project root no matter where the script is called from
+cd "$(dirname "$0")" || exit 1
+
 echo ""
 echo "======================================="
 echo "  NetWatch — Installation"
@@ -22,6 +25,14 @@ else
     echo "[✓] python3 found"
 fi
 
+# python3 can be present without pip3 (default on Ubuntu)
+if ! command -v pip3 &> /dev/null; then
+    echo "[+] installing pip3..."
+    sudo apt-get install -y python3-pip
+else
+    echo "[✓] pip3 found"
+fi
+
 # check if arping is installed
 if ! command -v arping &> /dev/null; then
     echo "[+] installing arping..."
@@ -32,7 +43,10 @@ fi
 
 # install python dependencies
 echo "[+] installing python dependencies..."
-pip3 install flask --break-system-packages -q
+# --break-system-packages only exists (and is only needed) on newer pip
+if ! pip3 install flask -q 2>/dev/null; then
+    pip3 install flask --break-system-packages -q || { echo "[✗] flask install failed"; exit 1; }
+fi
 
 # compile C++ scanner
 echo "[+] compiling scanner..."
@@ -49,12 +63,15 @@ fi
 cd ..
 
 # download vendor database
-if [ ! -f "manuf.txt" ]; then
+# (the old gitlab.com/wireshark/.../manuf URL returns 404; the file was removed from the repo)
+if [ ! -s "manuf.txt" ]; then
     echo "[+] downloading OUI vendor database..."
-    wget -q https://gitlab.com/wireshark/wireshark/-/raw/master/manuf -O manuf.txt
-    if [ $? -eq 0 ]; then
+    # download to a temp file so a failed download doesn't leave an empty manuf.txt behind
+    if wget -q https://standards-oui.ieee.org/oui/oui.txt -O manuf.txt.tmp && [ -s manuf.txt.tmp ]; then
+        mv manuf.txt.tmp manuf.txt
         echo "[✓] vendor database downloaded"
     else
+        rm -f manuf.txt.tmp
         echo "[!] vendor database download failed, vendor lookup will be unavailable"
     fi
 else

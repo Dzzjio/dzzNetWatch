@@ -1,66 +1,83 @@
 import subprocess
+import ipaddress
 import os
 import re
-from db import init_db, save_device
+from db import init_db, start_scan_session, save_device
 
-SCANNER_PATH = os.path.join(os.path.dirname(__file__), '..', 'scanner', 'netwatch')
+ROOT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+SCANNER_PATH = os.path.join(ROOT_DIR, 'scanner', 'netwatch')
+MANUF_PATH = os.path.join(ROOT_DIR, 'manuf.txt')
+
+# the scanner is sequential (~1s per dead host), so don't try to sweep a /8
+MAX_HOSTS = 4094
+
+VIRTUAL_IFACES = ("lo", "virbr", "docker", "br-", "veth", "tun", "tap")
+
+
+def _default_iface():
+    """name of the interface that holds the default route, or None"""
+    result = subprocess.run(
+        ["ip", "-o", "-4", "route", "show", "default"],
+        capture_output=True, text=True
+    )
+    match = re.search(r'\bdev (\S+)', result.stdout)
+    return match.group(1) if match else None
+
 
 def detect_subnet():
     """
     runs ip addr, finds the active interface,
-    returns base IP and range to scan.
+    returns the network to scan as an ipaddress.IPv4Network.
     """
     result = subprocess.run(
-        ["ip", "addr"],
+        ["ip", "-o", "-4", "addr"],
         capture_output=True, text=True
     )
 
-    lines = result.stdout.splitlines()
-
-    for line in lines:
-        line = line.strip()
-        if not line.startswith("inet "):
-            continue
-
-        # skip loopback and virtual interfaces
-        if "127.0.0.1" in line or "virbr" in line:
-            continue
-
-        # extract IP/prefix like "172.20.10.2/28"
-        match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)/(\d+)', line)
+    # e.g. "3: wlo1    inet 172.20.10.2/28 brd ... scope global wlo1"
+    candidates = []
+    for line in result.stdout.splitlines():
+        match = re.search(r'^\d+:\s+(\S+)\s+inet (\d+\.\d+\.\d+\.\d+/\d+)', line)
         if not match:
             continue
-
-        ip = match.group(1)
-        prefix = int(match.group(2))
-
-        # skip link-local
-        if ip.startswith("169.254"):
+        iface, cidr = match.group(1), match.group(2)
+        net = ipaddress.ip_interface(cidr).network
+        if net.is_loopback or net.is_link_local:
             continue
+        candidates.append((iface, net))
 
-        # calculate range from prefix
-        host_bits = 32 - prefix
-        total_hosts = (1 << host_bits) - 2  # 2^host_bits - 2
-
-        octets = ip.split('.')
-
-        if prefix >= 24:
-            # /24 to /28 — only last octet varies
-            base = f"{octets[0]}.{octets[1]}.{octets[2]}."
-            return base, 1, total_hosts, f"{base}0/{prefix}"
-
-        elif prefix >= 16:
-            # /16 to /23 — third and fourth octet vary
-            base = f"{octets[0]}.{octets[1]}."
-            return base, 1, total_hosts, f"{base}0.0/{prefix}"
-
-        else:
-            # bigger than /16 — too large, cap at 4094
-            base = f"{octets[0]}.{octets[1]}."
-            return base, 1, 4094, f"{base}0.0/{prefix} (capped)"
+    default = _default_iface()
+    for iface, net in candidates:
+        if iface == default:
+            return net
+    for iface, net in candidates:
+        if not iface.startswith(VIRTUAL_IFACES):
+            return net
 
     # fallback to hotspot default
-    return "172.20.10.", 1, 14, "172.20.10.0/28 (fallback)"
+    return ipaddress.ip_network("172.20.10.0/28")
+
+
+def scan_ranges(network):
+    """
+    split a network into (base, start, end) chunks the C++ scanner accepts.
+    the scanner only varies the last octet, so anything bigger than a /24
+    becomes one call per /24.
+    """
+    hosts = list(network.hosts())
+    if len(hosts) > MAX_HOSTS:
+        hosts = hosts[:MAX_HOSTS]
+
+    ranges = []
+    for host in hosts:
+        octets = str(host).split('.')
+        base = '.'.join(octets[:3]) + '.'
+        last = int(octets[3])
+        if ranges and ranges[-1][0] == base:
+            ranges[-1][2] = last
+        else:
+            ranges.append([base, last, last])
+    return [tuple(r) for r in ranges]
 
 
 def parse_output(output):
@@ -114,32 +131,39 @@ def parse_output(output):
 def run_scan():
     """run the C++ scanner and save results to SQLite"""
     # auto detect subnet
-    base, start, end, cidr = detect_subnet()
-    print(f"detected subnet: {cidr}")
-    print(f"scanning {end - start + 1} hosts...")
+    network = detect_subnet()
+    ranges = scan_ranges(network)
+    total = sum(end - start + 1 for _, start, end in ranges)
+    print(f"detected subnet: {network}")
+    print(f"scanning {total} hosts...")
 
     if not os.path.exists(SCANNER_PATH):
         print(f"scanner binary not found at {SCANNER_PATH}")
         print("compile it first: cd scanner && g++ main.cpp scanner.cpp -o netwatch -pthread")
         return []
 
-    # run the C++ binary, pass subnet as arguments
-    result = subprocess.run(
-        [SCANNER_PATH, base, str(start), str(end)],
-        capture_output=True, text=True
-    )
+    devices = []
+    for base, start, end in ranges:
+        # run the C++ binary, pass subnet as arguments
+        result = subprocess.run(
+            [SCANNER_PATH, base, str(start), str(end), MANUF_PATH],
+            capture_output=True, text=True
+        )
 
-    if result.returncode != 0:
-        print(f"scanner error: {result.stderr}")
-        return []
+        if result.returncode != 0:
+            print(f"scanner error: {result.stderr}")
+            return []
 
-    print("scan complete, parsing output...")
-    devices = parse_output(result.stdout)
+        devices.extend(parse_output(result.stdout))
 
-    # save each device to database
+    print("scan complete, saving results...")
+
+    # save each device to database under one scan session
     init_db()
+    scan_id = start_scan_session(str(network))
     for d in devices:
         save_device(
+            scan_id  = scan_id,
             ip       = d.get('ip', ''),
             hostname = d.get('hostname', 'unknown'),
             device   = d.get('device', 'unknown'),

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# work from the project root no matter where the script is called from
+cd "$(dirname "$0")" || exit 1
+
 echo ""
 echo "======================================="
 echo "  NetWatch — Starting"

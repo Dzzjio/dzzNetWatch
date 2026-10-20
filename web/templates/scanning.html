@@ -74,7 +74,8 @@
             fetch('/scan/status')
                 .then(r => r.json())
                 .then(data => {
-                    if (data.done && !data.running) {
+                    // also stop if the server restarted mid-scan (running and done both false)
+                    if (!data.running) {
                         // scan finished, go to dashboard
                         window.location.href = '/';
                     } else {

@@ -1,5 +1,7 @@
 # NetWatch 🔍
 
+:TODO remove vendors and add some more features!!
+
 A home network monitoring tool with a C++ scanner engine and a Python/Flask dashboard. Discovers devices on your local network, fingerprints them by hostname, MAC address, vendor, and open ports, and displays everything in a browser.
 
 ---

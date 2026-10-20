@@ -11,8 +11,16 @@ def get_connection():
 def init_db():
     conn = get_connection()
     conn.execute("""
+        CREATE TABLE IF NOT EXISTS scan_sessions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            network     TEXT,
+            started_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS scans (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            scan_id     INTEGER REFERENCES scan_sessions(id),
             ip          TEXT NOT NULL,
             hostname    TEXT,
             device      TEXT,
@@ -22,52 +30,55 @@ def init_db():
             scanned_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # migrate databases created before scan sessions existed
+    columns = [r['name'] for r in conn.execute("PRAGMA table_info(scans)")]
+    if 'scan_id' not in columns:
+        conn.execute("ALTER TABLE scans ADD COLUMN scan_id INTEGER REFERENCES scan_sessions(id)")
     conn.commit()
     conn.close()
 
-def already_saved_recently(ip):
-    """check if this IP was already saved in the last 5 minutes"""
+def start_scan_session(network):
+    """create a new scan session and return its id"""
     conn = get_connection()
-    row = conn.execute("""
-        SELECT id FROM scans
-        WHERE ip = ?
-        AND scanned_at >= datetime('now', '-5 minutes')
-    """, (ip,)).fetchone()
+    cur = conn.execute("INSERT INTO scan_sessions (network) VALUES (?)", (network,))
+    conn.commit()
+    scan_id = cur.lastrowid
     conn.close()
-    return row is not None
+    return scan_id
 
-def save_device(ip, hostname, device, mac, vendor, ports):
-    """insert device only if not already saved recently"""
-    if already_saved_recently(ip):
-        print(f"  skipping duplicate: {ip}")
-        return
+def save_device(scan_id, ip, hostname, device, mac, vendor, ports):
+    """insert device once per scan session"""
     conn = get_connection()
+    row = conn.execute(
+        "SELECT id FROM scans WHERE scan_id = ? AND ip = ?", (scan_id, ip)
+    ).fetchone()
+    if row is not None:
+        print(f"  skipping duplicate: {ip}")
+        conn.close()
+        return
     conn.execute("""
-        INSERT INTO scans (ip, hostname, device, mac, vendor, ports)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (ip, hostname, device, mac, vendor, ports))
+        INSERT INTO scans (scan_id, ip, hostname, device, mac, vendor, ports)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (scan_id, ip, hostname, device, mac, vendor, ports))
     conn.commit()
     conn.close()
 
 def get_latest_scan():
+    """devices found by the most recent scan session only"""
     conn = get_connection()
-    row = conn.execute("""
-        SELECT scanned_at FROM scans
-        ORDER BY scanned_at DESC LIMIT 1
-    """).fetchone()
-
-    if not row:
-        conn.close()
-        return []
-
-    latest_time = row['scanned_at']
     devices = conn.execute("""
         SELECT * FROM scans
-        WHERE scanned_at >= datetime(?, '-5 minutes')
-        ORDER BY ip ASC
-    """, (latest_time,)).fetchall()
+        WHERE scan_id = (SELECT MAX(id) FROM scan_sessions)
+    """).fetchall()
     conn.close()
-    return devices
+    # sort numerically: "10.0.0.10" after "10.0.0.9"
+    return sorted(devices, key=lambda d: _ip_key(d['ip']))
+
+def _ip_key(ip):
+    try:
+        return tuple(int(o) for o in ip.split('.'))
+    except ValueError:
+        return (256,)
 
 def get_scan_history(ip):
     conn = get_connection()
