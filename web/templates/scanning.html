@@ -1,92 +1,56 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>NetWatch — Scanning...</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <style>
-        .loader-wrap {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 60vh;
-            gap: 24px;
-        }
+{% extends 'base.html' %}
 
-        .spinner {
-            width: 60px;
-            height: 60px;
-            border: 4px solid #2a2d3e;
-            border-top: 4px solid #00ff88;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
+{% block title %}Scanning… · NetWatch{% endblock %}
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .scan-label {
-            color: #00ff88;
-            font-size: 1.2rem;
-            animation: pulse 1.5s ease-in-out infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        .scan-sub {
-            color: #555;
-            font-size: 0.85rem;
-        }
-
-        .dots::after {
-            content: '';
-            animation: dots 1.5s steps(4, end) infinite;
-        }
-
-        @keyframes dots {
-            0%   { content: ''; }
-            25%  { content: '.'; }
-            50%  { content: '..'; }
-            75%  { content: '...'; }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🔍 NetWatch</h1>
+{% block content %}
+    <section class="scanning">
+        <div class="radar" aria-hidden="true">
+            <div class="radar-sweep"></div>
+            <span class="blip" style="--x: 68%; --y: 30%; --d: 0.4s"></span>
+            <span class="blip" style="--x: 28%; --y: 62%; --d: 1.5s"></span>
+            <span class="blip" style="--x: 60%; --y: 74%; --d: 2.3s"></span>
+            <span class="blip" style="--x: 38%; --y: 24%; --d: 3.1s"></span>
         </div>
-        <div class="loader-wrap">
-            <div class="spinner"></div>
-            <div class="scan-label">Scanning network<span class="dots"></span></div>
-            <div class="scan-sub">pinging hosts · checking ports · fingerprinting devices</div>
-        </div>
-    </div>
 
-    <script>
-        // poll every 2 seconds to check if scan is done
-        function checkStatus() {
-            fetch('/scan/status')
-                .then(r => r.json())
-                .then(data => {
-                    // also stop if the server restarted mid-scan (running and done both false)
-                    if (!data.running) {
-                        // scan finished, go to dashboard
-                        window.location.href = '/';
-                    } else {
-                        setTimeout(checkStatus, 2000);
-                    }
-                })
-                .catch(() => setTimeout(checkStatus, 2000));
-        }
+        <h1 class="scan-title">Scanning network<span class="dots"></span></h1>
+        <p class="scan-target"><code>{{ network }}</code> &middot; {{ hosts }} hosts</p>
 
-        // start polling immediately
-        checkStatus();
-    </script>
-</body>
-</html>
+        <ol class="scan-steps">
+            <li><b>01</b> ping sweep</li>
+            <li><b>02</b> ARP / MAC lookup</li>
+            <li><b>03</b> port probe</li>
+            <li><b>04</b> fingerprint</li>
+        </ol>
+
+        <p class="scan-elapsed">elapsed <span id="elapsed" class="mono">00:00</span></p>
+        <p class="scan-note">Hosts that don't answer take about a second each, so large networks can take a while. You can leave this page; the scan keeps running.</p>
+    </section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const started = Date.now();
+    const elapsed = document.getElementById('elapsed');
+    setInterval(() => {
+        const s = Math.floor((Date.now() - started) / 1000);
+        elapsed.textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    }, 1000);
+
+    // poll every 2 seconds to check if scan is done
+    function checkStatus() {
+        fetch('{{ url_for('scan_status') }}')
+            .then(r => r.json())
+            .then(data => {
+                // also stop if the server restarted mid-scan (running and done both false)
+                if (!data.running) {
+                    window.location.href = '{{ url_for('dashboard') }}';
+                } else {
+                    setTimeout(checkStatus, 2000);
+                }
+            })
+            .catch(() => setTimeout(checkStatus, 2000));
+    }
+
+    checkStatus();
+</script>
+{% endblock %}

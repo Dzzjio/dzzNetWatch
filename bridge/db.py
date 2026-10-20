@@ -100,3 +100,49 @@ def get_all_scans():
     """).fetchall()
     conn.close()
     return rows
+
+def get_latest_session():
+    """the most recent scan session (network, local start time), or None"""
+    conn = get_connection()
+    row = conn.execute("""
+        SELECT id, network, datetime(started_at, 'localtime') AS started_at
+        FROM scan_sessions
+        ORDER BY id DESC LIMIT 1
+    """).fetchone()
+    conn.close()
+    return row
+
+def get_history(limit=20):
+    """recent scan sessions, newest first, each with its devices"""
+    conn = get_connection()
+    sessions = conn.execute("""
+        SELECT id, network, datetime(started_at, 'localtime') AS started_at
+        FROM scan_sessions
+        ORDER BY id DESC LIMIT ?
+    """, (limit,)).fetchall()
+    history = []
+    for s in sessions:
+        devices = conn.execute(
+            "SELECT * FROM scans WHERE scan_id = ?", (s['id'],)
+        ).fetchall()
+        history.append({
+            'id': s['id'],
+            'network': s['network'],
+            'started_at': s['started_at'],
+            'devices': sorted(devices, key=lambda d: _ip_key(d['ip'])),
+        })
+    # rows saved before scan sessions existed
+    legacy = conn.execute("""
+        SELECT *, datetime(scanned_at, 'localtime') AS scanned_at FROM scans
+        WHERE scan_id IS NULL
+        ORDER BY scanned_at DESC
+    """).fetchall()
+    if legacy:
+        history.append({
+            'id': None,
+            'network': None,
+            'started_at': legacy[0]['scanned_at'],
+            'devices': legacy,
+        })
+    conn.close()
+    return history

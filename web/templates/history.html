@@ -1,36 +1,63 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>NetWatch — History</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🔍 NetWatch</h1>
-            <p>Scan History</p>
-            <a href="/" class="scan-btn">← Back</a>
-        </div>
+{% extends 'base.html' %}
 
-        <table style="width:100%; border-collapse: collapse;">
-            <tr style="color:#00ff88; border-bottom: 1px solid #2a2d3e;">
-                <th style="padding:8px; text-align:left;">IP</th>
-                <th style="padding:8px; text-align:left;">Hostname</th>
-                <th style="padding:8px; text-align:left;">Device</th>
-                <th style="padding:8px; text-align:left;">Ports</th>
-                <th style="padding:8px; text-align:left;">Time</th>
-            </tr>
-            {% for row in rows %}
-            <tr style="border-bottom: 1px solid #1a1d2e;">
-                <td style="padding:8px; color:#00ff88;">{{ row['ip'] }}</td>
-                <td style="padding:8px;">{{ row['hostname'] }}</td>
-                <td style="padding:8px;">{{ row['device'] }}</td>
-                <td style="padding:8px; color:#888;">{{ row['ports'] }}</td>
-                <td style="padding:8px; color:#555; font-size:0.8rem;">{{ row['scanned_at'] }}</td>
-            </tr>
-            {% endfor %}
-        </table>
+{% block title %}History · NetWatch{% endblock %}
+
+{% block content %}
+    <section class="hero">
+        <div>
+            <p class="eyebrow">Scan history</p>
+            <h1>Past scans</h1>
+        </div>
+        <p class="hero-meta">{{ history|length }} session{{ 's' if history|length != 1 }}</p>
+    </section>
+
+    {% if history %}
+    <div class="sessions">
+        {% for s in history %}
+        <details class="session" {{ 'open' if loop.first }}>
+            <summary>
+                <svg class="icon chevron"><use href="#i-chevron"/></svg>
+                <span class="session-id">{{ '#' ~ s.id if s.id else 'legacy' }}</span>
+                <span class="session-net mono">{{ s.network or 'before scan sessions' }}</span>
+                <span class="session-time">{{ s.started_at }}</span>
+                <span class="session-count">{{ s.devices|length }} device{{ 's' if s.devices|length != 1 }}</span>
+            </summary>
+
+            {% if s.devices %}
+            <div class="table-wrap">
+                <table class="table">
+                    <thead>
+                        <tr><th>IP</th><th>Hostname</th><th>Device</th><th>Vendor</th><th>Ports</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for d in s.devices %}
+                        <tr>
+                            <td class="mono accent">{{ d['ip'] }}</td>
+                            <td>{{ d['hostname'] }}</td>
+                            <td><span class="kind-dot" data-kind="{{ d['device']|kind }}"></span>{{ d['device'] }}</td>
+                            <td class="muted">{{ d['vendor'] }}</td>
+                            <td>
+                                {% for port, name in d['ports']|ports %}<span class="port port-sm"><b>{{ port }}</b>{{ name }}</span>{% else %}<span class="muted">—</span>{% endfor %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="session-empty">No hosts responded in this scan.</p>
+            {% endif %}
+        </details>
+        {% endfor %}
     </div>
-</body>
-</html>
+    {% else %}
+    <section class="empty">
+        <div class="empty-radar"><span></span></div>
+        <h2>No scans yet</h2>
+        <p>Your scan sessions will show up here.</p>
+        <a href="{{ url_for('trigger_scan') }}" class="btn btn-primary btn-lg">
+            <svg class="icon"><use href="#i-scan"/></svg><span>Run first scan</span>
+        </a>
+    </section>
+    {% endif %}
+{% endblock %}

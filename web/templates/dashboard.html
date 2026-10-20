@@ -1,63 +1,118 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NetWatch</title>
-    <link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>🔍 NetWatch</h1>
-            <p>Home network monitor</p>
-            <a href="/scan" class="scan-btn">Run New Scan</a>
-        </div>
+{% extends 'base.html' %}
 
-        {% if devices %}
-        <div class="device-grid">
-            {% for d in devices %}
-            <div class="device-card">
-                <div class="device-icon">
-                    {% if d['device'] == 'iPhone' %}📱
-                    {% elif d['device'] == 'Linux/Mac machine' %}💻
-                    {% elif d['device'] == 'Windows machine' %}🖥️
-                    {% elif d['device'] == 'Router/Web server' %}📡
-                    {% elif d['device'] == 'Printer' %}🖨️
-                    {% elif d['device'] == 'Apple device' %}🍎
-                    {% elif d['device'] == 'Database server' %}🗄️
-                    {% elif d['device'] == 'PC/Laptop' %}💻
-                    {% elif d['device'] == 'Samsung device' %}📱
-                    {% else %}❓
-                    {% endif %}
-                </div>
-                <div class="device-info">
-                    <div class="device-ip">{{ d['ip'] }}</div>
-                    <div class="device-hostname">{{ d['hostname'] }}</div>
-                    <div class="device-type">{{ d['device'] }}</div>
-                    <div class="device-meta">
-                        <span class="tag">MAC: {{ d['mac'] }}</span>
-                        <span class="tag">{{ d['vendor'] }}</span>
-                        <span class="tag">ports: {{ d['ports'] }}</span>
-                    </div>
-                    <div class="scan-time">{{ d['scanned_at'] }}</div>
-                </div>
-                <div class="status-dot online"></div>
-            </div>
-            {% endfor %}
+{% block content %}
+    {% if scanning %}
+    <a href="{{ url_for('trigger_scan') }}" class="banner">
+        <span class="pulse"></span> A scan is running &mdash; view progress
+        <svg class="icon"><use href="#i-chevron"/></svg>
+    </a>
+    {% endif %}
+
+    <section class="hero">
+        <div>
+            <p class="eyebrow">Home network monitor</p>
+            <h1>Devices on your network</h1>
         </div>
-        {% else %}
-        <div class="empty">
-            <p>No scan data yet.</p>
-            <a href="/scan" class="scan-btn">Run First Scan</a>
-        </div>
+        {% if session %}
+        <p class="hero-meta">
+            Last scan <b>#{{ session['id'] }}</b> of <code>{{ session['network'] }}</code><br>
+            {{ session['started_at'] }}
+        </p>
         {% endif %}
+    </section>
 
-        <div class="footer">
-            <a href="/history">View scan history</a>
-            &nbsp;·&nbsp;
-            <a href="/api/devices">JSON API</a>
+    {% if devices %}
+    <section class="stats">
+        <div class="stat">
+            <span class="stat-label">Online</span>
+            <span class="stat-value accent">{{ devices|length }}</span>
         </div>
+        <div class="stat">
+            <span class="stat-label">Open ports</span>
+            <span class="stat-value">{{ open_ports }}</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Identified</span>
+            <span class="stat-value">{{ devices|rejectattr('device', 'equalto', 'unknown device')|list|length }}<small>/{{ devices|length }}</small></span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Network</span>
+            <span class="stat-value mono" title="{{ session['network'] if session }}">{{ session['network'] if session else '—' }}</span>
+        </div>
+    </section>
+
+    <div class="toolbar">
+        <label class="search">
+            <svg class="icon"><use href="#i-search"/></svg>
+            <input id="filter" type="search" placeholder="Filter by IP, hostname, vendor, port…" autocomplete="off">
+        </label>
+        <span class="toolbar-count" id="count">{{ devices|length }} devices</span>
     </div>
-</body>
-</html>
+
+    <section class="device-grid" id="devices">
+        {% for d in devices %}
+        {% set kind = d['device']|kind %}
+        <article class="device-card" data-kind="{{ kind }}"
+                 data-search="{{ [d['ip'], d['hostname'], d['device'], d['mac'], d['vendor'], d['ports']]|join(' ')|lower }}"
+                 style="--i: {{ loop.index0 }}">
+            <div class="card-top">
+                <div class="device-icon"><svg class="icon"><use href="#i-{{ kind }}"/></svg></div>
+                <div class="device-id">
+                    <div class="device-ip">{{ d['ip'] }}</div>
+                    <div class="device-hostname">{{ d['hostname'] if d['hostname'] != 'unknown' else 'no hostname' }}</div>
+                </div>
+                <span class="status" title="Responded to ping"><span class="pulse"></span>online</span>
+            </div>
+
+            <div class="device-type">{{ d['device'] }}</div>
+
+            <dl class="device-meta">
+                <div><dt>MAC</dt><dd class="mono">{{ d['mac'] }}</dd></div>
+                <div><dt>Vendor</dt><dd title="{{ d['vendor'] }}">{{ d['vendor'] }}</dd></div>
+            </dl>
+
+            <div class="ports">
+                {% for port, name in d['ports']|ports %}
+                <span class="port"><b>{{ port }}</b>{{ name }}</span>
+                {% else %}
+                <span class="port port-none">no open ports</span>
+                {% endfor %}
+            </div>
+        </article>
+        {% endfor %}
+    </section>
+    <p class="empty-filter" id="no-match" hidden>No devices match that filter.</p>
+
+    {% else %}
+    <section class="empty">
+        <div class="empty-radar"><span></span></div>
+        <h2>{{ 'No devices found' if session else 'No scan data yet' }}</h2>
+        <p>{{ "The last scan didn't get a reply from any host." if session else "Run your first scan to discover what's on your network." }}</p>
+        <a href="{{ url_for('trigger_scan') }}" class="btn btn-primary btn-lg">
+            <svg class="icon"><use href="#i-scan"/></svg><span>{{ 'Scan again' if session else 'Run first scan' }}</span>
+        </a>
+    </section>
+    {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const filter = document.getElementById('filter');
+    if (filter) {
+        const cards = [...document.querySelectorAll('.device-card')];
+        const count = document.getElementById('count');
+        const noMatch = document.getElementById('no-match');
+        filter.addEventListener('input', () => {
+            const q = filter.value.trim().toLowerCase();
+            let shown = 0;
+            for (const card of cards) {
+                const match = card.dataset.search.includes(q);
+                card.hidden = !match;
+                if (match) shown++;
+            }
+            count.textContent = q ? `${shown} of ${cards.length} devices` : `${cards.length} devices`;
+            noMatch.hidden = shown > 0;
+        });
+    }
+</script>
+{% endblock %}

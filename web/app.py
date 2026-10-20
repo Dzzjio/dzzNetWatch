@@ -5,10 +5,41 @@ import threading
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'bridge'))
 
 from flask import Flask, render_template, jsonify
-from db import init_db, get_latest_scan, get_all_scans
-from scan_runner import run_scan
+from db import init_db, get_latest_scan, get_latest_session, get_history
+from scan_runner import run_scan, detect_subnet, scan_ranges
 
 app = Flask(__name__)
+
+# device type (from the C++ guessDevice) -> icon / colour key used by the UI
+DEVICE_KINDS = {
+    'iPhone':            'phone',
+    'Samsung device':    'phone',
+    'Apple device':      'apple',
+    'Windows machine':   'windows',
+    'Linux/Mac machine': 'linux',
+    'PC/Laptop':         'laptop',
+    'Router/Web server': 'router',
+    'Printer':           'printer',
+    'Database server':   'database',
+}
+
+PORT_NAMES = {
+    22: 'SSH', 80: 'HTTP', 135: 'RPC', 443: 'HTTPS', 445: 'SMB',
+    3306: 'MySQL', 7000: 'AirPlay', 9100: 'Print', 62078: 'iTunes',
+}
+
+@app.template_filter('kind')
+def device_kind(device):
+    return DEVICE_KINDS.get(device, 'unknown')
+
+@app.template_filter('ports')
+def port_list(ports):
+    """"22,80" -> [(22, 'SSH'), (80, 'HTTP')]; "none" -> []"""
+    result = []
+    for p in (ports or '').split(','):
+        if p.strip().isdigit():
+            result.append((int(p), PORT_NAMES.get(int(p), 'TCP')))
+    return result
 
 # global scan state
 scan_state = {
@@ -35,7 +66,10 @@ def run_scan_thread():
 def dashboard():
     init_db()
     devices = get_latest_scan()
-    return render_template('dashboard.html', devices=devices, scanning=scan_state["running"])
+    open_ports = sum(len(port_list(d['ports'])) for d in devices)
+    return render_template('dashboard.html', devices=devices,
+                           session=get_latest_session(), open_ports=open_ports,
+                           scanning=scan_state["running"])
 
 @app.route('/scan')
 def trigger_scan():
@@ -51,7 +85,9 @@ def trigger_scan():
         t = threading.Thread(target=run_scan_thread)
         t.daemon = True
         t.start()
-    return render_template('scanning.html')
+    network = detect_subnet()
+    hosts = sum(end - start + 1 for _, start, end in scan_ranges(network))
+    return render_template('scanning.html', network=network, hosts=hosts)
 
 @app.route('/scan/status')
 def scan_status():
@@ -67,8 +103,7 @@ def api_devices():
 @app.route('/history')
 def history():
     init_db()
-    rows = get_all_scans()
-    return render_template('history.html', rows=rows)
+    return render_template('history.html', history=get_history())
 
 if __name__ == '__main__':
     init_db()
